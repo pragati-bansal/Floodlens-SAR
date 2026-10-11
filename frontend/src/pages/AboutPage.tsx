@@ -1,43 +1,57 @@
-import { Eye, Cpu, Navigation, Layers, Scan } from 'lucide-react';
+import { Cpu, Navigation, Layers, Scan, Satellite, ShieldCheck } from 'lucide-react';
 
 const steps = [
   {
-    icon: Eye,
-    title: 'Watching the Weather',
+    icon: Satellite,
+    title: 'Space-Based SAR Remote Sensing (NDRF PS-17)',
     description:
-      'FloodLens wakes up street cameras automatically when rainfall crosses heavy thresholds in any Delhi zone. No human operator needed — the system watches IMD weather feeds and activates monitoring within minutes.',
-    color: 'bg-forest',
+      'Penetrates heavy monsoon cloud cover using Sentinel-1 C-band Synthetic Aperture Radar (SAR). Calibrates radar backscatter (Sigma0 dB) and executes change detection to map flood inundation boundaries without optical cloud blindness.',
+    color: 'bg-sky-700',
   },
   {
     icon: Cpu,
-    title: 'Smart Camera Eyes',
+    title: 'Edge CCTV Telemetry & AI Depth Markers',
     description:
-      'Our vision models measure water depth by analyzing how much of vehicle tires and road curbs are submerged. It can tell the difference between a puddle and a flooded underpass in seconds.',
+      'Supplementary ground-level camera analytics using YOLOv8, RF-DETR, and Mask2Former measure localized underpass water depth (cm) and detect road obstructions as ground-truth evidence.',
     color: 'bg-amber',
   },
   {
     icon: Navigation,
-    title: 'Guiding You Safely',
+    title: 'Flood-Aware Dynamic Emergency Routing',
     description:
-      'The map updates in real-time. Flooded roads turn red, clear roads stay green. Ambulances, delivery drivers, and everyday commuters can plan safe routes without guessing.',
-    color: 'bg-dark',
+      'Intersects satellite flood polygons with arterial road networks in real time. Generates lower-risk candidate detour routes for NDRF rescue teams and citizens that actively avoid submerged corridors.',
+    color: 'bg-forest',
   },
 ];
 
 const models = [
   {
-    icon: Scan,
-    name: 'RF-DETR',
-    role: 'Object Detection',
+    icon: Satellite,
+    name: 'Sentinel-1 C-Band SAR',
+    role: 'Primary Satellite Radar Remote Sensing',
     description:
-      'An open-source transformer-based model used to detect water depth markers on vehicle tires and curb edges. It identifies how deep water has risen at each junction.',
+      'Active microwave radar (5.405 GHz) operating in IW GRDH mode. Unaffected by cloud cover or darkness. Detects specular water attenuation (VV <= -16 dB) and bi-temporal change drops (Delta <= -3.5 dB) across entire river basins.',
+  },
+  {
+    icon: Scan,
+    name: 'YOLOv8 & RF-DETR',
+    role: 'Supplementary Edge Vision & Obstruction Detection',
+    description:
+      'Transformer and convolution vision architectures measuring water level markers on curbs, bridge pillars, and vehicle tires to provide localized underpass depth measurements.',
   },
   {
     icon: Layers,
     name: 'Mask2Former',
-    role: 'Segmentation',
+    role: 'Post-Flood Surface Auditing',
     description:
-      'An open-source segmentation model that audits road conditions after water recedes — spotting potholes, fallen debris, and damaged surfaces that could still be dangerous.',
+      'Semantic and panoptic segmentation inspecting road infrastructure after floodwaters recede — classifying potholes, slush accumulations, and damaged asphalt.',
+  },
+  {
+    icon: ShieldCheck,
+    name: 'NetworkX & OSRM Engine',
+    role: 'Graph Pathfinding & Street-Snapping',
+    description:
+      'Dynamically applies infinite penalty weights to road segments intersecting satellite flood polygons, computing street-snapped lower-risk candidate routes for emergency units.',
   },
 ];
 

@@ -5,6 +5,7 @@ import {
   TileLayer,
   Marker,
   Polyline,
+  Polygon,
   Popup,
   useMap,
   useMapEvents,
@@ -25,20 +26,34 @@ import {
   ArrowUpDown,
   CheckCircle2,
   AlertOctagon,
+  Satellite,
+  Sliders,
 } from 'lucide-react';
 import { useCameraStations } from '../hooks/useCameraStations';
 import { useCitizenReports } from '../hooks/useCitizenReports';
 import { DELHI_CENTER, DEFAULT_ZOOM } from '../data/mockData';
 import StatusBadge from '../components/StatusBadge';
 import DepthBadge from '../components/DepthBadge';
-import { getSafeRoute } from '../lib/api';
+import SatelliteAnalysisPanel from '../components/SatelliteAnalysisPanel';
+import {
+  getSafeRoute,
+  fetchFloodPolygons,
+  fetchRoadRisks,
+  calculateCandidateRoute,
+} from '../lib/api';
 import {
   STATUS_COLORS,
   getPassabilityAdvice,
   timeAgo,
   haversineDistance,
 } from '../utils/helpers';
-import type { CameraStation, StationStatus } from '../types';
+import type {
+  CameraStation,
+  StationStatus,
+  FloodFeatureCollection,
+  RoadRiskAssessment,
+  CandidateRouteResult,
+} from '../types';
 
 /* ─── Custom Point Type ──────────────────────── */
 export interface RoutePoint {
@@ -483,6 +498,37 @@ export default function MapPage() {
   // Reports overlay toggle
   const [showReports, setShowReports] = useState(true);
 
+  // ORBITRON Sentinel-1 SAR & NDRF States
+  const [showSarPolygons, setShowSarPolygons] = useState(true);
+  const [showRoadRisks, setShowRoadRisks] = useState(true);
+  const [showSatellitePanel, setShowSatellitePanel] = useState(false);
+  const [floodData, setFloodData] = useState<FloodFeatureCollection | null>(null);
+  const [evaluatedRoadRisks, setEvaluatedRoadRisks] = useState<RoadRiskAssessment[]>([]);
+  const [candidateRoute, setCandidateRoute] = useState<CandidateRouteResult | null>(null);
+  const [selectedPolygon, setSelectedPolygon] = useState<any | null>(null);
+
+  // Load initial SAR flood polygons and evaluated road risks
+  useEffect(() => {
+    let isMounted = true;
+    async function loadInitialSarData() {
+      try {
+        const [polys, risks] = await Promise.all([
+          fetchFloodPolygons(),
+          fetchRoadRisks(),
+        ]);
+        if (!isMounted) return;
+        setFloodData(polys);
+        setEvaluatedRoadRisks(risks);
+      } catch (err) {
+        console.warn('Initial SAR flood data load failed:', err);
+      }
+    }
+    loadInitialSarData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Road segment geometries from OSRM
   const [roadSegments, setRoadSegments] = useState<RoadSegment[]>([]);
 
@@ -603,6 +649,7 @@ export default function MapPage() {
     setPinningMode(null);
     setRouteGeometry([]);
     setRouteDetails(null);
+    setCandidateRoute(null);
     setRouteMessage('');
     setRouteError('');
   };
@@ -626,7 +673,35 @@ export default function MapPage() {
     setRouteError('');
 
     try {
-      // 1. Try FastAPI backend safe route calculation if landmark / station IDs are available
+      // 1. Try ORBITRON SAR-aware lower-risk candidate route endpoint
+      try {
+        const sarRes = await calculateCandidateRoute({
+          origin_lat: originPoint.lat,
+          origin_lon: originPoint.lng,
+          destination_lat: destPoint.lat,
+          destination_lon: destPoint.lng,
+          avoid_sar_floods: true,
+          max_risk_tolerance: 'safe_only',
+        });
+        if (sarRes.success && sarRes.coordinates && sarRes.coordinates.length > 0) {
+          setRouteGeometry(sarRes.coordinates);
+          setCandidateRoute(sarRes);
+          setRouteDetails({
+            coordinates: sarRes.coordinates,
+            distanceKm: sarRes.summary.total_distance_km,
+            durationMin: Math.round(sarRes.summary.estimated_duration_min),
+            avoidedStations: stations.filter((s) => s.status === 'danger'),
+            cautionStations: stations.filter((s) => s.status === 'caution'),
+          });
+          const avoidedCount = sarRes.flagged_segments_avoided?.length || 0;
+          setRouteMessage(`Lower-risk candidate route calculated (${avoidedCount} flooded corridors avoided).`);
+          return;
+        }
+      } catch (sarErr) {
+        console.warn('SAR candidate route endpoint fallback:', sarErr);
+      }
+
+      // 2. Try camera station corridor route if landmark / station IDs are available
       const origQuery = originPoint.stationId || originPoint.name;
       const destQuery = destPoint.stationId || destPoint.name;
 
@@ -707,6 +782,108 @@ export default function MapPage() {
         />
 
         {flyTarget && <FlyTo center={flyTarget} />}
+
+        {/* ORBITRON Sentinel-1 SAR Flood Inundation Polygons */}
+        {showSarPolygons &&
+          floodData?.features?.map((feat, idx) => {
+            const rawCoords = feat.geometry?.coordinates;
+            if (!rawCoords || !rawCoords.length) return null;
+            const ring = Array.isArray(rawCoords[0][0])
+              ? (rawCoords[0] as [number, number][])
+              : (rawCoords as unknown as [number, number][]);
+            const leafCoords: [number, number][] = ring.map(([lon, lat]) => [lat, lon]);
+
+            return (
+              <Polygon
+                key={feat.properties?.polygon_id || `sar-poly-${idx}`}
+                positions={leafCoords}
+                pathOptions={{
+                  color: '#0284C7',
+                  fillColor: '#38BDF8',
+                  fillOpacity: 0.42,
+                  weight: 2,
+                  dashArray: '4, 4',
+                }}
+                eventHandlers={{
+                  click: () => setSelectedPolygon(feat),
+                }}
+              >
+                <Popup>
+                  <div className="p-2 min-w-[210px]">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-sky-700">
+                      <Satellite className="w-3.5 h-3.5" />
+                      Sentinel-1 Radar Inundation
+                    </div>
+                    <div className="text-sm font-bold text-dark mt-0.5">
+                      {feat.properties?.polygon_id}
+                    </div>
+                    <div className="mt-2 space-y-1 text-xs text-dark/75">
+                      <div className="flex justify-between">
+                        <span>Flooded Area:</span>
+                        <span className="font-bold text-sky-600">{feat.properties?.area_sqkm} km²</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Mean Backscatter:</span>
+                        <span className="font-mono">{feat.properties?.mean_backscatter_db} dB</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Confidence:</span>
+                        <span className="font-semibold text-emerald-700">
+                          {((feat.properties?.confidence_score || 0.9) * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Acquisition:</span>
+                        <span>{feat.properties?.acquisition_date?.slice(0, 10)}</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-1.5 border-t border-sand text-[10px] text-dark/50">
+                      Source: {feat.properties?.source}
+                    </div>
+                  </div>
+                </Popup>
+              </Polygon>
+            );
+          })}
+
+        {/* ORBITRON Evaluated Road-Risk Corridors */}
+        {showRoadRisks &&
+          evaluatedRoadRisks.map((road) => {
+            const isImp = road.status === 'impassable';
+            const isCaut = road.status === 'caution';
+            const color = isImp ? '#DC2626' : isCaut ? '#D97706' : '#16A34A';
+            return (
+              <Polyline
+                key={road.road_id}
+                positions={road.coordinates}
+                pathOptions={{
+                  color,
+                  weight: isImp ? 7 : isCaut ? 5 : 4,
+                  opacity: 0.85,
+                  dashArray: isImp ? '6, 8' : undefined,
+                }}
+              >
+                <Popup>
+                  <div className="p-2 min-w-[220px]">
+                    <div className="flex items-center gap-1.5 text-xs font-bold" style={{ color }}>
+                      <AlertOctagon className="w-3.5 h-3.5" />
+                      {road.status.toUpperCase()} CORRIDOR
+                    </div>
+                    <div className="text-xs font-bold text-dark mt-1">
+                      {road.name}
+                    </div>
+                    <p className="text-[11px] text-dark/70 mt-1 leading-snug">
+                      {road.flag_reason}
+                    </p>
+                    <div className="mt-2 pt-1 border-t border-sand flex justify-between text-[10px] text-dark/50">
+                      <span>Proximity: {road.distance_to_flood_m}m</span>
+                      <span>Risk: {(road.risk_score * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                </Popup>
+              </Polyline>
+            );
+          })}
 
         {/* OSRM road-snapped segment lines */}
         {roadSegments.map((seg) => {
@@ -1229,6 +1406,41 @@ export default function MapPage() {
                     </div>
                   </div>
 
+                  {/* ORBITRON SAR Candidate Route Analysis */}
+                  {candidateRoute && (
+                    <div className="pt-2 border-t border-sand space-y-2">
+                      <div className="p-2.5 rounded-xl bg-sky-900/10 border border-sky-600/30">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-sky-800">
+                          <Satellite className="w-3.5 h-3.5 text-sky-600" />
+                          NDRF Lower-Risk Candidate Route
+                        </div>
+                        <p className="text-[10px] text-dark/75 mt-1 leading-snug">
+                          {candidateRoute.safety_disclaimer}
+                        </p>
+                      </div>
+
+                      {candidateRoute.flagged_segments_avoided?.length > 0 && (
+                        <div>
+                          <div className="text-[11px] font-bold text-danger flex items-center gap-1 mb-1">
+                            <AlertOctagon className="w-3 h-3" />
+                            Flooded Road Corridors Skirted ({candidateRoute.flagged_segments_avoided.length}):
+                          </div>
+                          <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                            {candidateRoute.flagged_segments_avoided.map((seg) => (
+                              <div
+                                key={seg.road_id}
+                                className="text-[10px] p-1.5 rounded-lg bg-danger/10 border border-danger/20 text-dark/80"
+                              >
+                                <span className="font-bold text-danger">⛔ {seg.name}</span>
+                                <div className="text-[9px] text-dark/60 mt-0.5">{seg.flag_reason}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Avoided flooded zones */}
                   {routeDetails.avoidedStations.length > 0 && (
                     <div className="pt-1">
@@ -1263,20 +1475,87 @@ export default function MapPage() {
           </div>
         )}
 
-        {/* Community reports toggle */}
-        <button
-          onClick={() => setShowReports(!showReports)}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg border text-sm font-medium
-                     transition-all ${
-                       showReports
-                         ? 'bg-forest text-cream border-forest'
-                         : 'bg-white text-dark/70 border-sand hover:shadow-xl'
-                     }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          Community Reports ({reports.length})
-        </button>
+        {/* Layer Toggles & Satellite Mission Control Toolbar */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* SAR Flood Extent Toggle */}
+          <button
+            onClick={() => setShowSarPolygons(!showSarPolygons)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl shadow-lg border text-xs font-semibold transition-all ${
+              showSarPolygons
+                ? 'bg-sky-700 text-white border-sky-800'
+                : 'bg-white text-dark/70 border-sand hover:shadow-xl'
+            }`}
+            title="Toggle Sentinel-1 SAR Flood Inundation Extent Polygons"
+          >
+            <Satellite className="w-3.5 h-3.5" />
+            SAR Floods ({floodData?.features?.length || 0})
+          </button>
+
+          {/* Road Risk Overlay Toggle */}
+          <button
+            onClick={() => setShowRoadRisks(!showRoadRisks)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl shadow-lg border text-xs font-semibold transition-all ${
+              showRoadRisks
+                ? 'bg-[#C2410C] text-white border-[#C2410C]'
+                : 'bg-white text-dark/70 border-sand hover:shadow-xl'
+            }`}
+            title="Toggle Evaluated Road-Risk Corridors (Impassable / Caution / Safe)"
+          >
+            <AlertOctagon className="w-3.5 h-3.5" />
+            Road Risks ({evaluatedRoadRisks.length || 0})
+          </button>
+
+          {/* Community reports toggle */}
+          <button
+            onClick={() => setShowReports(!showReports)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl shadow-lg border text-xs font-semibold transition-all ${
+              showReports
+                ? 'bg-forest text-cream border-forest'
+                : 'bg-white text-dark/70 border-sand hover:shadow-xl'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Reports ({reports.length})
+          </button>
+
+          {/* Sentinel-1 SAR Mission Control Panel Button */}
+          <button
+            onClick={() => setShowSatellitePanel(!showSatellitePanel)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl shadow-xl border text-xs font-bold transition-all ${
+              showSatellitePanel
+                ? 'bg-[#1C2018] text-[#82C341] border-[#82C341]'
+                : 'bg-[#1C2018] text-[#F5EFE3] border-[#4F5B2A]/70 hover:border-[#82C341]'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5 text-[#82C341]" />
+            NDRF SAR Mission Control
+          </button>
+        </div>
       </div>
+
+      {/* Floating Satellite Analysis Panel Modal */}
+      {showSatellitePanel && (
+        <div className="absolute top-4 right-4 z-[1200] w-[460px] max-w-[calc(100vw-32px)]">
+          <div className="relative">
+            <button
+              onClick={() => setShowSatellitePanel(false)}
+              className="absolute top-3 right-3 p-1 rounded-full bg-[#0F140D] hover:bg-[#2D5A27] text-[#C8C2B3] hover:text-white transition-all z-10 border border-[#4F5B2A]/40"
+              title="Close Satellite Panel"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <SatelliteAnalysisPanel
+              onFloodDataLoaded={(data) => {
+                setFloodData(data.floodCollection);
+                setEvaluatedRoadRisks(data.roadRisks);
+              }}
+              onFocusRegion={(center) => {
+                setFlyTarget(center);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Station Drawer */}
       {selectedStation && (
@@ -1439,6 +1718,77 @@ export default function MapPage() {
                 <ExternalLink className="w-4 h-4" />
                 Open in Camera View →
               </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flood Polygon Detail Drawer */}
+      {selectedPolygon && (
+        <div className="absolute top-0 right-0 bottom-0 w-96 max-w-full z-[1000] drawer-enter">
+          <div className="h-full bg-white border-l border-sand shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-sand bg-[#0F140D] text-white">
+              <div className="flex items-center gap-2">
+                <Satellite className="w-5 h-5 text-sky-400" />
+                <h3 className="font-bold text-sm truncate pr-2">
+                  {selectedPolygon.properties?.polygon_id}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedPolygon(null)}
+                className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-200">
+                <div className="text-xs text-sky-800 font-semibold">Surface Water Inundation Extent</div>
+                <div className="text-2xl font-black text-sky-600 mt-1">
+                  {selectedPolygon.properties?.area_sqkm} <span className="text-sm font-medium">km²</span>
+                </div>
+                <div className="text-[11px] text-sky-700 mt-1">
+                  Radar backscatter attenuation: <span className="font-mono font-bold">{selectedPolygon.properties?.mean_backscatter_db} dB</span>
+                </div>
+              </div>
+
+              <div className="space-y-2.5 text-xs">
+                <div className="flex justify-between border-b border-sand pb-1.5">
+                  <span className="text-dark/60">Detection Algorithm</span>
+                  <span className="font-medium text-dark text-right max-w-[200px]">
+                    {selectedPolygon.properties?.detection_method}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-sand pb-1.5">
+                  <span className="text-dark/60">Confidence Level</span>
+                  <span className="font-bold text-emerald-700">
+                    {((selectedPolygon.properties?.confidence_score || 0.9) * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-sand pb-1.5">
+                  <span className="text-dark/60">Acquisition Timestamp</span>
+                  <span className="font-mono text-dark">
+                    {selectedPolygon.properties?.acquisition_date}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-sand pb-1.5">
+                  <span className="text-dark/60">Sensor / Satellite</span>
+                  <span className="font-medium text-dark">
+                    {selectedPolygon.properties?.source}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-sand pb-1.5">
+                  <span className="text-dark/60">Severity Category</span>
+                  <span className="font-bold uppercase text-amber-700">
+                    {selectedPolygon.properties?.severity}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900 leading-relaxed">
+                <b>Operational Note for NDRF:</b> This polygon represents radar-identified surface water accumulation from Sentinel-1 C-band SAR. It indicates flooded land area and road intersection risk, but does not measure water depth.
+              </div>
             </div>
           </div>
         </div>

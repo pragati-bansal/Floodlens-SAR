@@ -25,6 +25,9 @@ export default function Navbar() {
             <span className="text-xl font-bold text-dark tracking-tight">
               Flood<span className="text-forest">Lens</span>
             </span>
+            <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-[#C2410C]/10 border border-[#C2410C]/30 text-[#C2410C]">
+              🛰️ NDRF PS-17
+            </span>
           </NavLink>
 
           {/* Desktop links */}

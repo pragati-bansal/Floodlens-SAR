@@ -1,35 +1,44 @@
-# 🌊 FloodLens — Real-Time Urban Flood Intelligence & Safe Routing
+# 🛰️ FloodLens — Space-Based Flood Inundation Mapping & Safe Routing for NDRF
+## ORBITRON Spaceathon | Problem Statement 17
 
 [![React](https://img.shields.io/badge/Frontend-React_19_+_Vite-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Sentinel-1](https://img.shields.io/badge/Remote_Sensing-Sentinel--1_C--band_SAR-005596?logo=satellite&logoColor=white)](https://sentinels.copernicus.eu/)
+[![PostGIS](https://img.shields.io/badge/Spatial-Shapely_+_PostGIS-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
 [![TailwindCSS](https://img.shields.io/badge/Styling-Tailwind_CSS_v4-38B2AC?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![YOLOv8](https://img.shields.io/badge/Computer_Vision-YOLOv8_Segmentation-00FFFF?logo=ultralytics&logoColor=black)](https://github.com/ultralytics/ultralytics)
 [![Leaflet](https://img.shields.io/badge/Maps-React_Leaflet-199900?logo=leaflet&logoColor=white)](https://leafletjs.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**FloodLens** is an intelligent urban flood monitoring, edge camera vision analytics, and real-time safe routing platform built for Delhi NCR. It bridges the gap between raw CCTV camera feeds, citizen reports, and commuter navigation during heavy monsoon waterlogging events.
+**FloodLens** is an end-to-end geospatial intelligence and emergency decision-support platform designed for the **National Disaster Response Force (NDRF)** during severe monsoon flooding.
+
+During extreme weather events, optical satellites fail due to dense cloud cover. FloodLens utilizes **Sentinel-1 Synthetic Aperture Radar (SAR)** as its primary all-weather sensing input, processing radar backscatter to delineate surface water inundation polygons, intersecting them with urban arterial roads, and calculating lower-risk candidate rescue routes.
 
 ---
 
-## 🌟 Key Features
+## 🌟 Key Capabilities
 
-### 1. 👁️ Edge Vision & AI Water Segmentation
-- **YOLOv8 Instance Segmentation**: Automated water accumulation detection from CCTV snapshots.
-- **Dynamic Telemetry HUD**: Generates visual overlays with water masks, contour outlines, water level estimates (cm), and severity classifications (*Clear*, *Caution*, *Impassable*).
-- **Simulated & Real Feeds**: Ingests camera streams or tests edge segmentation with real underpass datasets.
+### 1. 🛰️ Space-Based Sentinel-1 SAR Pipeline (Primary NDRF Input)
+- **All-Weather C-Band Radar Sensing (5.405 GHz)**: Cloud-penetrating imagery acquisition in Interferometric Wide (IW) Ground Range Detected (GRD) mode (10m resolution).
+- **Radiometric Calibration**: Raw radar digital numbers calibrated into Sigma Nought ($\sigma^0$) linear and decibel (dB) values.
+- **Adaptive Speckle Filtering**: Spatial Lee adaptive filtering approximation to suppress multiplicative radar speckle noise while preserving riverbank and flood boundaries.
+- **Bi-Temporal Change Detection**: Before-and-after event comparison ($\Delta \sigma^0 \le -3.5 \text{ dB}$) paired with amplitude thresholding ($\sigma^0 \le -16.0 \text{ dB}$ for VV) to isolate newly inundated surfaces from dry land.
+- **Permanent-Water Exclusion**: Masks out perennial dry-season riverbeds to prevent misclassifying normal river bodies as newly flooded regions.
+- **Topological Vector Polygonization**: Automatic contour-to-vectorization with topology repair (`shapely.validation.make_valid`), producing georeferenced WGS84 GeoJSON features with area ($\text{km}^2$), mean backscatter, and confidence scoring.
 
-### 2. 🗺️ Live Safe Roads Map & Interactive Radar
-- **Live Home Radar Preview**: Modern 2-column hero preview with pulsing live telemetry, quick stats, road search, and interactive mini-map.
-- **Road-Snapped Safe Routing**: Computes detour routes via OSRM (Open Source Routing Machine) and graph traversal that dynamically skirt flooded underpasses and hazardous junctions (e.g. Minto Bridge, ITO Crossing, Pul Prahladpur).
-- **Interactive Map Pinning**: Click or drag origin (`A`) and destination (`B`) pins anywhere on the map to calculate flood-avoiding paths in real time.
+### 2. 🚧 Flood-Road Spatial Intersection & NDRF Candidate Routing
+- **Spatial Buffer & Intersection**: Evaluates road LineStrings against detected SAR flood polygons. Classifies corridors into `impassable` (direct intersection), `caution` (<300m buffer), and `safe` (clear).
+- **Dynamic NetworkX Dijkstra Routing**: Applies dynamic hazard penalties (infinite weight for impassable corridors) to compute lower-risk candidate alternative routes.
+- **OSRM Street Geometry Snapping**: Connects waypoints to OpenStreetMap geometry for realistic street-level navigation.
+- **Explainable Decision Support**: Transparently displays avoided flooded road corridors, safety ratings, and NDRF operational disclaimers.
 
-### 3. 👥 Citizen Crowdsourced Reports
-- **Real-Time Reporting**: Citizens can submit geotagged flood hazards, water depth observations, and descriptions.
-- **Community Verification**: Automated cross-referencing with nearby camera telemetry and administrative verification workflows.
+### 3. 👁️ Supplementary Edge Camera Telemetry & Ground Truth
+- **YOLOv8 Edge Segmentation**: Water depth markers (cm) and severity classifications from CCTV feeds at critical transit junctions.
+- **Clean Source Normalization**: SAR surface extent and camera water depths are kept logically separate with transparent provenance.
 
-### 4. 🚨 Emergency Services & Admin Control Center
-- **Municipal Command Dashboard**: Role-based access for emergency responders and traffic police.
-- **Manual Overrides & Broadcasting**: Push real-time advisories, update station statuses, and manage critical transit corridors.
+### 4. 👥 Citizen Hazard Reporting & Admin Portal
+- **500m Proximity Verification**: Automated cross-referencing with nearby sensor stations.
+- **Municipal Command Dashboard**: Role-based access control, broadcast advisories, and emergency dispatch logs.
 
 ---
 
@@ -178,6 +187,12 @@ npm run dev
 ```bash
 cd backend
 python test_backend.py
+```
+
+### Running Sentinel-1 SAR Pipeline & NDRF Routing Tests
+```bash
+cd backend
+python test_satellite_pipeline.py
 ```
 
 ### Testing the AI Water Segmentation Model

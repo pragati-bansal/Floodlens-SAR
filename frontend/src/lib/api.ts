@@ -7,6 +7,12 @@ import type {
   EmergencyDispatch,
   RawCameraFeed,
   DispatchStatus,
+  SatelliteScene,
+  ProcessingJob,
+  FloodFeatureCollection,
+  RoadRiskAssessment,
+  CandidateRouteResult,
+  UnifiedObservation,
 } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
@@ -293,4 +299,148 @@ export async function uploadWebcamFrame(
     data.image_url = `${API_BASE_URL}${data.image_url}`;
   }
   return data;
+}
+
+/* ----------------- ORBITRON Sentinel-1 SAR & NDRF Routing APIs ----------------- */
+
+/**
+ * Fetch available Sentinel-1 IW GRDH SAR acquisitions.
+ */
+export async function fetchSatelliteScenes(region?: string): Promise<SatelliteScene[]> {
+  const q = region ? `?region=${encodeURIComponent(region)}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/v1/satellite/scenes${q}`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch satellite scenes: ${res.status}`);
+  }
+  return res.json();
+}
+
+export interface ProcessingJobParams {
+  region: string;
+  post_event_scene_id: string;
+  pre_event_scene_id?: string;
+  polarization?: string;
+  threshold_db?: number;
+  apply_speckle_filter?: boolean;
+  exclude_permanent_water?: boolean;
+  min_polygon_area_sqkm?: number;
+}
+
+/**
+ * Submit an asynchronous SAR flood inundation processing job.
+ */
+export async function createProcessingJob(params: ProcessingJobParams): Promise<ProcessingJob> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/satellite/processing-jobs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Failed to submit processing job: ${res.status} ${err}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch status of a specific processing job.
+ */
+export async function fetchProcessingJob(jobId: string): Promise<ProcessingJob> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/satellite/processing-jobs/${encodeURIComponent(jobId)}`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch processing job '${jobId}': ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch all processing jobs.
+ */
+export async function fetchProcessingJobs(): Promise<ProcessingJob[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/satellite/processing-jobs`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch processing jobs: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch georeferenced flood inundation GeoJSON polygons.
+ */
+export async function fetchFloodPolygons(jobId?: string, region?: string): Promise<FloodFeatureCollection> {
+  const params = new URLSearchParams();
+  if (jobId) params.append('job_id', jobId);
+  if (region) params.append('region', region);
+  const q = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/flood/polygons${q}`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch flood polygons: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch road risk assessments evaluated against Sentinel-1 SAR flood polygons.
+ */
+export async function fetchRoadRisks(): Promise<RoadRiskAssessment[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/roads/risks`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch road risks: ${res.status}`);
+  }
+  return res.json();
+}
+
+export interface CandidateRouteParams {
+  origin_lat: number;
+  origin_lon: number;
+  destination_lat: number;
+  destination_lon: number;
+  avoid_sar_floods?: boolean;
+  max_risk_tolerance?: 'safe_only' | 'allow_caution' | 'unconstrained';
+}
+
+/**
+ * Calculate a flood-aware lower-risk candidate route avoiding radar-detected floodwaters.
+ */
+export async function calculateCandidateRoute(params: CandidateRouteParams): Promise<CandidateRouteResult> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/routes/calculate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Failed to calculate candidate route: ${res.status} ${err}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch unified multi-source observations (SAR satellite, CCTV cameras, citizen reports).
+ */
+export async function fetchUnifiedObservations(): Promise<UnifiedObservation[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/flood/observations`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch unified observations: ${res.status}`);
+  }
+  return res.json();
 }

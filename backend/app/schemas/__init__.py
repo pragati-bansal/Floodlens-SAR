@@ -3,6 +3,17 @@ from .cameras import CameraStationResponse, CameraStationListResponse
 from .telemetry import EdgeTelemetryInput, TelemetryResponse
 from .reports import CitizenReportCreate, CitizenReportResponse, CitizenReportListResponse
 from .routing import RouteRequest, RouteResponse, Waypoint, RouteSummary
+from .satellite import (
+    SatelliteScene,
+    ProcessingJobCreate,
+    ProcessingJob,
+    FloodPolygonFeature,
+    FloodFeatureCollection,
+    RoadRiskAssessment,
+    CandidateRouteRequest,
+    CandidateRouteResponse,
+    UnifiedObservation,
+)
 
 __all__ = [
     "CameraStationResponse",
@@ -16,4 +27,13 @@ __all__ = [
     "RouteResponse",
     "Waypoint",
     "RouteSummary",
+    "SatelliteScene",
+    "ProcessingJobCreate",
+    "ProcessingJob",
+    "FloodPolygonFeature",
+    "FloodFeatureCollection",
+    "RoadRiskAssessment",
+    "CandidateRouteRequest",
+    "CandidateRouteResponse",
+    "UnifiedObservation",
 ]

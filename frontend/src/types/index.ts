@@ -124,3 +124,130 @@ export interface RawCameraFeed {
     [key: string]: any;
   };
 }
+
+/* ----------------- ORBITRON Spaceathon SAR Satellite & NDRF Types ----------------- */
+
+export interface SatelliteScene {
+  scene_id: string;
+  satellite: string;
+  sensor_mode: string;
+  product_type: string;
+  polarizations: string[];
+  acquisition_date: string;
+  orbit_direction: 'ASCENDING' | 'DESCENDING';
+  bbox: [number, number, number, number];
+  region: string;
+  is_pre_event: boolean;
+  source: string;
+  resolution_m: number;
+  orbit_number?: number;
+  mean_backscatter_db?: number;
+}
+
+export interface ProcessingJob {
+  job_id: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  progress_pct: number;
+  region: string;
+  created_at: string;
+  completed_at?: string;
+  post_event_scene_id: string;
+  pre_event_scene_id?: string;
+  polarization: string;
+  threshold_db: number;
+  total_inundated_area_sqkm: number;
+  polygons_count: number;
+  affected_roads_count: number;
+  method: string;
+  confidence_level: string;
+  error_message?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface FloodPolygonProperties {
+  polygon_id: string;
+  job_id: string;
+  area_sqkm: number;
+  source: string;
+  detection_method: string;
+  confidence_score: number;
+  mean_backscatter_db: number;
+  acquisition_date: string;
+  water_type: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
+export interface FloodPolygonFeature {
+  type: 'Feature';
+  geometry: {
+    type: 'Polygon' | 'MultiPolygon';
+    coordinates: number[][][] | number[][][][];
+  };
+  properties: FloodPolygonProperties;
+}
+
+export interface FloodFeatureCollection {
+  type: 'FeatureCollection';
+  job_id?: string;
+  region?: string;
+  acquisition_date?: string;
+  features: FloodPolygonFeature[];
+  total_inundated_area_sqkm: number;
+  metadata?: Record<string, any>;
+}
+
+export interface RoadRiskAssessment {
+  road_id: string;
+  name: string;
+  corridor: string;
+  status: 'impassable' | 'caution' | 'safe';
+  risk_score: number;
+  intersecting_polygon_id?: string | null;
+  distance_to_flood_m: number;
+  flag_reason: string;
+  evidence_source: string;
+  coordinates: [number, number][]; // [[lat, lon], ...]
+  assessed_at: string;
+}
+
+export interface FlaggedSegmentAvoided {
+  road_id: string;
+  name: string;
+  status: string;
+  risk_score: number;
+  flag_reason: string;
+  flood_evidence: string;
+}
+
+export interface CandidateRouteResult {
+  success: boolean;
+  candidate_type: string;
+  summary: {
+    total_distance_km: number;
+    estimated_duration_min: number;
+    safety_rating: 'safe' | 'caution_advisory' | 'impassable';
+    waypoints_count: number;
+    nodes_traversed?: string[];
+    avoided_flooded_corridors_count?: number;
+  };
+  coordinates: [number, number][]; // [[lat, lon], ...]
+  flagged_segments_avoided: FlaggedSegmentAvoided[];
+  safety_disclaimer: string;
+  calculated_at: string;
+}
+
+export interface UnifiedObservation {
+  id: string;
+  source_type: 'sar_satellite' | 'camera_edge' | 'citizen_report';
+  source_id: string;
+  observation_time: string;
+  ingestion_time: string;
+  location_name: string;
+  latitude: number;
+  longitude: number;
+  classification: string;
+  extent_or_depth: Record<string, any>;
+  confidence: number;
+  verification_status: string;
+  evidence_url?: string | null;
+}

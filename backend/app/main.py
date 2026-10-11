@@ -10,6 +10,7 @@ from .api.routes_edge import router as edge_router
 from .api.routes_citizen import router as citizen_router
 from .api.routes_navigation import router as navigation_router
 from .api.routes_admin import router as admin_router
+from .api.routes_satellite import router as satellite_router
 
 # Configure logging
 logging.basicConfig(
@@ -43,13 +44,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount API routers under prefix (e.g. /api/v1)
+# Mount API routers under prefix (e.g. /api/v1 and /api)
 app.include_router(cameras_router, prefix=settings.API_V1_PREFIX)
 app.include_router(cameras_router, prefix="/api")
 app.include_router(edge_router, prefix=settings.API_V1_PREFIX)
 app.include_router(citizen_router, prefix=settings.API_V1_PREFIX)
+app.include_router(citizen_router, prefix="/api")
 app.include_router(navigation_router, prefix=settings.API_V1_PREFIX)
+app.include_router(navigation_router, prefix="/api")
 app.include_router(admin_router, prefix=settings.API_V1_PREFIX)
+app.include_router(admin_router, prefix="/api")
+app.include_router(satellite_router, prefix=settings.API_V1_PREFIX)
+app.include_router(satellite_router, prefix="/api")
 
 
 @app.get("/", tags=["Health & Status"])

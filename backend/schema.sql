@@ -82,3 +82,82 @@ CREATE INDEX IF NOT EXISTS idx_citizen_reports_created_at ON citizen_reports(cre
 CREATE INDEX IF NOT EXISTS idx_hazard_logs_camera_id ON hazard_logs(camera_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_emergency_dispatches_created_at ON emergency_dispatches(dispatched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_emergency_dispatches_status ON emergency_dispatches(status);
+
+-- 6. Sentinel-1 Satellite Scenes Catalog
+CREATE TABLE IF NOT EXISTS satellite_scenes (
+    scene_id TEXT PRIMARY KEY,
+    satellite TEXT NOT NULL,
+    sensor_mode TEXT NOT NULL,
+    product_type TEXT NOT NULL,
+    polarizations TEXT[] NOT NULL,
+    acquisition_date TIMESTAMPTZ NOT NULL,
+    orbit_direction TEXT CHECK (orbit_direction IN ('ASCENDING', 'DESCENDING')),
+    min_lon DOUBLE PRECISION NOT NULL,
+    min_lat DOUBLE PRECISION NOT NULL,
+    max_lon DOUBLE PRECISION NOT NULL,
+    max_lat DOUBLE PRECISION NOT NULL,
+    region TEXT NOT NULL,
+    is_pre_event BOOLEAN DEFAULT FALSE,
+    source TEXT NOT NULL,
+    resolution_m DOUBLE PRECISION DEFAULT 10.0,
+    mean_backscatter_db DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. SAR Inundation Processing Jobs
+CREATE TABLE IF NOT EXISTS processing_jobs (
+    job_id TEXT PRIMARY KEY,
+    status TEXT CHECK (status IN ('queued', 'processing', 'completed', 'failed')) DEFAULT 'queued',
+    progress_pct INTEGER DEFAULT 0,
+    region TEXT NOT NULL,
+    post_event_scene_id TEXT REFERENCES satellite_scenes(scene_id),
+    pre_event_scene_id TEXT REFERENCES satellite_scenes(scene_id),
+    polarization TEXT DEFAULT 'VV',
+    threshold_db DOUBLE PRECISION DEFAULT -16.0,
+    total_inundated_area_sqkm DOUBLE PRECISION DEFAULT 0.0,
+    polygons_count INTEGER DEFAULT 0,
+    affected_roads_count INTEGER DEFAULT 0,
+    method TEXT NOT NULL,
+    confidence_level TEXT DEFAULT 'high',
+    error_message TEXT,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+-- 8. Georeferenced Flood Inundation Polygons
+CREATE TABLE IF NOT EXISTS flood_polygons (
+    id TEXT PRIMARY KEY,
+    job_id TEXT REFERENCES processing_jobs(job_id) ON DELETE CASCADE,
+    area_sqkm DOUBLE PRECISION NOT NULL,
+    source TEXT NOT NULL,
+    detection_method TEXT NOT NULL,
+    confidence_score DOUBLE PRECISION NOT NULL,
+    mean_backscatter_db DOUBLE PRECISION,
+    acquisition_date TIMESTAMPTZ NOT NULL,
+    water_type TEXT DEFAULT 'flood_inundation',
+    severity TEXT CHECK (severity IN ('low', 'medium', 'high')) DEFAULT 'medium',
+    geometry JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. Road Segment Risk Assessments
+CREATE TABLE IF NOT EXISTS road_risk_assessments (
+    road_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    corridor TEXT NOT NULL,
+    status TEXT CHECK (status IN ('safe', 'caution', 'impassable')) NOT NULL,
+    risk_score DOUBLE PRECISION NOT NULL,
+    intersecting_polygon_id TEXT REFERENCES flood_polygons(id) ON DELETE SET NULL,
+    distance_to_flood_m DOUBLE PRECISION NOT NULL,
+    flag_reason TEXT NOT NULL,
+    evidence_source TEXT NOT NULL,
+    coordinates JSONB NOT NULL,
+    assessed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_satellite_scenes_region ON satellite_scenes(region);
+CREATE INDEX IF NOT EXISTS idx_processing_jobs_status ON processing_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_flood_polygons_job_id ON flood_polygons(job_id);
+CREATE INDEX IF NOT EXISTS idx_road_risk_status ON road_risk_assessments(status);

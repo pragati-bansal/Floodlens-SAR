@@ -265,6 +265,9 @@ class MockDatabase:
         self.hazard_logs: List[Dict[str, Any]] = []
         self.agency_users: Dict[str, Dict[str, Any]] = {u["id"]: dict(u) for u in INITIAL_AGENCY_USERS}
         self.emergency_dispatches: List[Dict[str, Any]] = [dict(d) for d in INITIAL_EMERGENCY_DISPATCHES]
+        self.processing_jobs: Dict[str, Dict[str, Any]] = {}
+        self.flood_polygons: Dict[str, List[Dict[str, Any]]] = {}
+        self.road_risks: Dict[str, Dict[str, Any]] = {}
 
     def get_camera_stations(self) -> List[Dict[str, Any]]:
         with self._lock:
@@ -372,6 +375,49 @@ class MockDatabase:
                     d["status"] = status
                     return dict(d)
             return None
+
+    def get_processing_jobs(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return sorted(
+                list(self.processing_jobs.values()),
+                key=lambda x: x.get("created_at", ""),
+                reverse=True
+            )
+
+    def get_processing_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            job = self.processing_jobs.get(job_id)
+            return dict(job) if job else None
+
+    def save_processing_job(self, job_data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            j_id = job_data.get("job_id")
+            self.processing_jobs[j_id] = dict(job_data)
+            return dict(job_data)
+
+    def get_flood_polygons(self, job_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._lock:
+            if job_id:
+                return [dict(p) for p in self.flood_polygons.get(job_id, [])]
+            all_poly = []
+            for plist in self.flood_polygons.values():
+                all_poly.extend([dict(p) for p in plist])
+            return all_poly
+
+    def save_flood_polygons(self, job_id: str, polygons: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        with self._lock:
+            self.flood_polygons[job_id] = [dict(p) for p in polygons]
+            return [dict(p) for p in polygons]
+
+    def get_road_risks(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return list(self.road_risks.values())
+
+    def save_road_risks(self, risks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        with self._lock:
+            for r in risks:
+                self.road_risks[r["road_id"]] = dict(r)
+            return list(self.road_risks.values())
 
 
 class DatabaseManager:
@@ -633,6 +679,79 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"Supabase error updating emergency dispatch status: {e}")
         return self._mock_db.update_emergency_dispatch_status(dispatch_id, status)
+
+    async def get_processing_jobs(self) -> List[Dict[str, Any]]:
+        if self._use_supabase and self._supabase_client:
+            try:
+                res = self._supabase_client.table("processing_jobs").select("*").order("created_at", desc=True).execute()
+                if res.data:
+                    return res.data
+            except Exception as e:
+                logger.error(f"Supabase error fetching processing_jobs: {e}")
+        return self._mock_db.get_processing_jobs()
+
+    async def get_processing_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        if self._use_supabase and self._supabase_client:
+            try:
+                res = self._supabase_client.table("processing_jobs").select("*").eq("job_id", job_id).execute()
+                if res.data and len(res.data) > 0:
+                    return res.data[0]
+            except Exception as e:
+                logger.error(f"Supabase error fetching job {job_id}: {e}")
+        return self._mock_db.get_processing_job(job_id)
+
+    async def save_processing_job(self, job_data: Dict[str, Any]) -> Dict[str, Any]:
+        if self._use_supabase and self._supabase_client:
+            try:
+                res = self._supabase_client.table("processing_jobs").upsert(job_data).execute()
+                if res.data:
+                    saved = res.data[0]
+                    self._mock_db.save_processing_job(saved)
+                    return saved
+            except Exception as e:
+                logger.error(f"Supabase error saving processing_job: {e}")
+        return self._mock_db.save_processing_job(job_data)
+
+    async def get_flood_polygons(self, job_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        if self._use_supabase and self._supabase_client:
+            try:
+                query = self._supabase_client.table("flood_polygons").select("*")
+                if job_id:
+                    query = query.eq("job_id", job_id)
+                res = query.execute()
+                if res.data:
+                    return res.data
+            except Exception as e:
+                logger.error(f"Supabase error fetching flood_polygons: {e}")
+        return self._mock_db.get_flood_polygons(job_id)
+
+    async def save_flood_polygons(self, job_id: str, polygons: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if self._use_supabase and self._supabase_client:
+            try:
+                for p in polygons:
+                    self._supabase_client.table("flood_polygons").upsert(p).execute()
+            except Exception as e:
+                logger.error(f"Supabase error saving flood_polygons: {e}")
+        return self._mock_db.save_flood_polygons(job_id, polygons)
+
+    async def get_road_risks(self) -> List[Dict[str, Any]]:
+        if self._use_supabase and self._supabase_client:
+            try:
+                res = self._supabase_client.table("road_risk_assessments").select("*").execute()
+                if res.data:
+                    return res.data
+            except Exception as e:
+                logger.error(f"Supabase error fetching road_risks: {e}")
+        return self._mock_db.get_road_risks()
+
+    async def save_road_risks(self, risks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if self._use_supabase and self._supabase_client:
+            try:
+                for r in risks:
+                    self._supabase_client.table("road_risk_assessments").upsert(r).execute()
+            except Exception as e:
+                logger.error(f"Supabase error saving road_risks: {e}")
+        return self._mock_db.save_road_risks(risks)
 
 
 db = DatabaseManager()
